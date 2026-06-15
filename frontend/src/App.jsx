@@ -26,7 +26,7 @@ function App() {
 
   const fetchRankings = async () => {
     try {
-      const res = await axios.get('http://localhost:8000/api/rankings');
+      const res = await axios.get('https://card-recommendation.onrender.com/api/rankings');
       setRankings(res.data || []);
     } catch (error) {
       console.error("랭킹 로드 실패", error);
@@ -46,7 +46,7 @@ function App() {
     formData.append('filters', JSON.stringify(currentFilters));
 
     try {
-      const response = await axios.post('http://localhost:8000/api/analyze', formData);
+      const response = await axios.post('https://card-recommendation.onrender.com/api/analyze', formData);
       
       if (response.data?.error) {
         alert("에러: " + response.data.error);
