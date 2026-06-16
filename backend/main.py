@@ -3,8 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import json
 import os
 import copy  # 🚨 [핵심 추가] 메모리 복사를 위한 라이브러리
-import firebase_admin
-from firebase_admin import credentials, firestore
+from collections import Counter  # 🚨 [핵심 추가] 메모리 랭킹 저장을 위한 라이브러리
 
 from parser import PDFStatementParser
 from recommend import get_best_combinations
@@ -20,20 +19,8 @@ app.add_middleware(
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Firebase 초기화
-fb_path = os.path.join(BASE_DIR, "firebase_key.json")
-try:
-    if os.path.exists(fb_path):
-        cred = credentials.Certificate(fb_path)
-        if not firebase_admin._apps:
-            firebase_admin.initialize_app(cred)
-        db = firestore.client()
-        rankings_ref = db.collection('card_rankings')
-    else:
-        db = None
-except Exception as e:
-    print(f"🚨 Firebase 초기화 실패: {e}")
-    db = None
+# 🚨 Firebase 대신 서버 메모리에 랭킹을 저장할 변수 생성
+ranking_store = Counter()
 
 # 무적의 JSON 로더
 def load_json_safe(file_path):
@@ -116,20 +103,10 @@ def analyze_statement(file: UploadFile = File(...), filters: str = Form(...)):
     user_filters = json.loads(filters)
     top_5_recommendations = get_best_combinations(user_spending, user_filters, clean_card_database)
 
-    # Firebase 저장 로직
-    if db:
-        for combo in top_5_recommendations:
-            for card_name in combo["cards"]:
-                try:
-                    safe_doc_id = card_name.replace("/", "_").replace("\\", "_").strip()
-                    card_doc = rankings_ref.document(safe_doc_id)
-                    doc_snap = card_doc.get()
-                    if doc_snap.exists:
-                        card_doc.update({"count": firestore.Increment(1)})
-                    else:
-                        card_doc.set({"name": card_name, "count": 1})
-                except Exception as fb_err:
-                    print(f"⚠️ Firebase 랭킹 반영 실패 ({card_name}): {fb_err}")
+    # 🚨 메모리 랭킹 업데이트 로직 (Firebase 대체)
+    for combo in top_5_recommendations:
+        for card_name in combo["cards"]:
+            ranking_store[card_name] += 1
 
     return {
         "summary": user_spending,
@@ -138,9 +115,9 @@ def analyze_statement(file: UploadFile = File(...), filters: str = Form(...)):
 
 @app.get("/api/rankings")
 def get_popular_rankings():
-    if not db: return []
-    try:
-        docs = rankings_ref.order_by("count", direction=firestore.Query.DESCENDING).limit(10).stream()
-        return [{"id": i, "name": d.to_dict().get("name"), "count": d.to_dict().get("count")} for i, d in enumerate(docs, 1)]
-    except:
-        return []
+    # 🚨 메모리에서 상위 10개 랭킹을 가져와 프론트엔드 포맷에 맞게 전달
+    top_10 = ranking_store.most_common(10)
+    return [
+        {"id": i, "name": name, "count": count} 
+        for i, (name, count) in enumerate(top_10, 1)
+    ]
